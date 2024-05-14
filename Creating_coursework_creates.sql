@@ -62,7 +62,6 @@ CREATE TABLE Ecosystems (
 	ecosystem_id   		 INT 			NOT NULL, -- each ecosystem has id
 	ecosystem_name 		 NVARCHAR(50) 	NOT NULL, -- each ecosystem has name
 	description    		 TEXT, 		  			  -- ecosystem description
-	livability_status 	 SMALLINT 		NOT NULL, -- (0—suitable, 1—suitable with restrictions, 2—potentially suitable, 3—recoverable 4—unsuitable)
 	
 	create_date 		 DATETIME,				  -- system date of creating a row 
 	update_date	  		 DATETIME 	    ON UPDATE CURRENT_TIMESTAMP, -- system date of updating a row  
@@ -79,6 +78,8 @@ CREATE TABLE EcosystemSubtype (
     atmospheric_pressure DECIMAL(10, 2) NOT NULL, -- subecosystem atmospheric pressure
 	temperature 		 SMALLINT 		NOT NULL, -- subecosystem temperature
 	description			 TEXT 			NOT NULL, 
+	livability_status 	 SMALLINT 		NOT NULL, -- (0—suitable, 1—suitable with restrictions, 2—potentially suitable, 3—recoverable 4—unsuitable)
+	
     ecosystem_id 		 INT 		  	NOT NULL,
 --    FOREIGN KEY (ecosystem_id) REFERENCES Ecosystems(ecosystem_id)
 	CONSTRAINT uc_subtype_name UNIQUE (subtype_name),											 
@@ -109,7 +110,7 @@ CREATE TABLE Expeditions (
 	expedition_id 		 INT 		  NOT NULL, -- each expediton has id
 	start_date 			 DATETIME 	  NOT NULL, -- date and time of the start of the expedition  
 	end_date 			 DATETIME, 				-- date and time of the end of the expedition (12.31.2999 if current)
-	expedition_purpose   NVARCHAR(20) NOT NULL, -- research, colonizaton, rescue
+	expedition_purpose   NVARCHAR(20) NOT NULL, -- research, colonization, rescue
 	expedition_commander INT, 					-- Expedition commander id
 	expedition_direction INT		  NOT NULL, -- planet id
 	
@@ -170,22 +171,22 @@ CREATE TABLE Aircrafts (
 
 /* Bridges */
 CREATE TABLE Planets_x_Ecosystems_x_Resources (
-	id				  INT		  NOT NULL,
-	planet_id		  INT 		  NOT NULL, -- each planet has id 
-	ecosystem_id   	  INT 		  NOT NULL, -- each ecosystem has id
-	resourse_id 	  INT 		  NOT NULL, -- each resource has id 
+	id				  INT		     NOT NULL,
+	planet_id		  INT 		     NOT NULL, -- each planet has id 
+	ecosystem_id   	  INT 		     NOT NULL, -- each ecosystem has id
+ 	resourse_id 	  INT 		     NOT NULL, -- each resource has id 
 
-	ecosystem_subtype INT					/* subtype of each ecosystem (Rainforests, Deserts, 
-											   Tundra, Savannas, Coniferous forests,
-											   Deciduous forests, Meadows, Mediterranean forests, 
-											   Swamps, Rocks, Caves) */	
-	ecosystem_square  DECIMAL(10, 2)		-- square of the area with this ecosystem (km*km)
-	life_presence 	  BIT  					-- flag of presence of life 
+	ecosystem_subtype INT					   /* subtype of each ecosystem (Rainforests, Deserts, 
+											      Tundra, Savannas, Coniferous forests,
+											      Deciduous forests, Meadows, Mediterranean forests, 
+											      Swamps, Rocks, Caves) */	
+	ecosystem_square  DECIMAL(10, 2)		   -- square of the area with this ecosystem (km*km)
+	life_presence 	  BIT  					   -- flag of presence of life 
 	
-	resource_quantity DECIMAL(10, 2), 		-- quantity of resource on the planet (years og using) 
+	resource_quantity DECIMAL(10, 2) NOT NULL, 		-- quantity of resource on the planet (years og using) 
 
 	create_date    	  DATETIME, 			-- system date of creating a row 
-	update_date	  	  DATETIME 	  ON UPDATE CURRENT_TIMESTAMP, -- system date of updating a ROW
+	update_date	  	  DATETIME 	     ON UPDATE CURRENT_TIMESTAMP, -- system date of updating a ROW
 );
 
 /*Expeditions_x_Teams*/
@@ -252,6 +253,7 @@ CREATE DEFAULT default_zero AS 0;
 EXEC sp_bindefault default_zero Planets.indigenous_stage; 
 EXEC sp_bindefault default_zero Planets.is_colony; 
 EXEC sp_bindefault default_zero Colonies.economy_stage; 
+EXEC sp_bindefault default_zero Planets_x_Ecosystems_x_Resources.resource_quantity; 
 EXEC sp_bindefault default_zero Teams.team_size; 
 
 
@@ -377,7 +379,7 @@ END;
 
 
 CREATE TRIGGER update_last_visit_date
-ON Expeditions_x_Teams
+ON Expeditions
 AFTER INSERT
 AS
 BEGIN
@@ -389,9 +391,8 @@ BEGIN
 END;
 
 
-
 CREATE TRIGGER restore_last_visit_date
-ON Expeditions_x_Teams
+ON Expeditions
 AFTER DELETE
 AS
 BEGIN
@@ -399,8 +400,8 @@ BEGIN
 
     DECLARE @last_visit DATE;
 
-    SELECT @last_visit = MAX(start_date)
-    FROM Expeditions_x_Teams
+    SELECT @last_visit = MAX(end_date)
+    FROM Expeditions
     WHERE expedition_direction = (SELECT expedition_direction FROM deleted);
 
    IF @last_visit IS NOT NULL
@@ -418,47 +419,175 @@ BEGIN
 END;
 
 
---CREATE TRIGGER generate_expedition_report
---AFTER INSERT ON Expeditions
---FOR EACH ROW
---AS
---BEGIN
---    DECLARE @expedition_id INT;
---    DECLARE @report_text NVARCHAR(MAX);
---    
---    -- Объявляем курсор для выборки данных о новой экспедиции
---    DECLARE expedition_cursor CURSOR FOR
---    SELECT expedition_id, start_date, end_date, expedition_purpose
---    FROM inserted;
---
---    -- Открываем курсор
---    OPEN expedition_cursor;
---
---    -- Извлекаем первую строку данных из курсора
---    FETCH NEXT FROM expedition_cursor INTO @expedition_id, @start_date, @end_date, @purpose;
---
---    -- Пока строки данных доступны, формируем отчет и вставляем его в таблицу ExpeditionReports
---    WHILE @@FETCH_STATUS = 0
---    BEGIN
---        -- Формируем текст отчета
---        SET @report_text = 'Expedition Report' + CHAR(13) + CHAR(10);
---        SET @report_text = @report_text + 'Expedition ID: ' + CAST(@expedition_id AS NVARCHAR(10)) + CHAR(13) + CHAR(10);
---        SET @report_text = @report_text + 'Start Date: ' + CONVERT(NVARCHAR(20), @start_date, 120) + CHAR(13) + CHAR(10);
---        SET @report_text = @report_text + 'End Date: ' + CONVERT(NVARCHAR(20), @end_date, 120) + CHAR(13) + CHAR(10);
---        SET @report_text = @report_text + 'Purpose: ' + @purpose + CHAR(13) + CHAR(10);
---
---        -- Вставляем отчет о состоянии экспедиции в таблицу ExpeditionReports
---        INSERT INTO ExpeditionReports (expedition_id, report_text, create_date)
---        VALUES (@expedition_id, @report_text, GETDATE());
---
---        -- Извлекаем следующую строку данных из курсора
---        FETCH NEXT FROM expedition_cursor INTO @expedition_id, @start_date, @end_date, @purpose;
---    END
---
---    -- Закрываем курсор
---    CLOSE expedition_cursor;
---    DEALLOCATE expedition_cursor;
---END;
+CREATE TRIGGER generate_expedition_report
+AFTER INSERT ON Expeditions
+FOR EACH ROW
+AS
+BEGIN
+    DECLARE @expedition_id INT;
+    DECLARE @report_text NVARCHAR(MAX);
+    
+    -- Declare a cursor to fetch data about the new expedition
+    DECLARE expedition_cursor CURSOR FOR
+    SELECT expedition_id, start_date, end_date, expedition_purpose
+    FROM inserted;
+
+    -- Open the cursor
+    OPEN expedition_cursor;
+
+    -- Fetch the first row of data from the cursor
+    FETCH NEXT FROM expedition_cursor INTO @expedition_id, @start_date, @end_date, @purpose;
+
+    -- While there is data available, form the report and insert it into the ExpeditionReports table
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        -- Form the report text
+        SET @report_text = 'Expedition Report' + CHAR(13) + CHAR(10);
+        SET @report_text = @report_text + 'Expedition ID: ' + CAST(@expedition_id AS NVARCHAR(10)) + CHAR(13) + CHAR(10);
+        SET @report_text = @report_text + 'Start Date: ' + CONVERT(NVARCHAR(20), @start_date, 120) + CHAR(13) + CHAR(10);
+        SET @report_text = @report_text + 'End Date: ' + CONVERT(NVARCHAR(20), @end_date, 120) + CHAR(13) + CHAR(10);
+        SET @report_text = @report_text + 'Purpose: ' + @purpose + CHAR(13) + CHAR(10);
+
+        -- Insert the expedition status report into the ExpeditionReports table
+        INSERT INTO ExpeditionReports (expedition_id, report_text, create_date)
+        VALUES (@expedition_id, @report_text, GETDATE());
+
+        -- Fetch the next row of data from the cursor
+        FETCH NEXT FROM expedition_cursor INTO @expedition_id, @start_date, @end_date, @purpose;
+    END;
+
+    -- Close the cursor
+    CLOSE expedition_cursor;
+    DEALLOCATE expedition_cursor;
+END;
+
+
+
+CREATE TRIGGER update_planet_and_colony_info
+ON Expeditions
+AFTER INSERT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @expedition_id INT;
+    DECLARE @expedition_purpose NVARCHAR(20);
+    DECLARE @expedition_direction INT;
+    DECLARE @planet_id INT;
+
+    -- Declare a cursor to fetch data about the new expedition
+    DECLARE expedition_cursor CURSOR FOR
+    SELECT expedition_id, expedition_purpose, expedition_direction
+    FROM inserted;
+
+    -- Open the cursor
+    OPEN expedition_cursor;
+
+    -- Fetch the first row of data from the cursor
+    FETCH NEXT FROM expedition_cursor INTO @expedition_id, @expedition_purpose, @expedition_direction;
+
+    -- While there is data available, update the planet and colony information
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        IF @expedition_purpose = 'colonization'
+        BEGIN
+            -- Update the last_visit_date in the Planets table
+            UPDATE Planets
+            SET last_visit_date = GETDATE()
+            WHERE planet_id = @expedition_direction;
+
+            -- Check if there is already a colony on this planet
+            IF NOT EXISTS (SELECT 1 FROM Colonies WHERE home_planet = @expedition_direction)
+            BEGIN
+                -- Insert a record into the Colonies table
+                INSERT INTO Colonies (colony_name, population, settle_date, status, economy_stage, location, home_planet, create_date)
+                VALUES ('New Colony', 0, GETDATE(), 'Under construction', 0, (0, 0), @expedition_direction, GETDATE());
+            END;
+        END;
+
+        -- Fetch the next row of data from the cursor
+        FETCH NEXT FROM expedition_cursor INTO @expedition_id, @expedition_purpose, @expedition_direction;
+    END;
+
+    -- Close the cursor
+    CLOSE expedition_cursor;
+    DEALLOCATE expedition_cursor;
+END;
+
+
+
+CREATE TRIGGER generate_resource_report
+ON Planets_x_Ecosystems_x_Resources
+AFTER INSERT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @planet_id INT;
+    DECLARE @planet_name INT;
+    DECLARE @ecosystem_id INT;
+    DECLARE @resource_id INT;
+    DECLARE @resource_name NVARCHAR(50);
+    DECLARE @resource_quantity DECIMAL(10, 2);
+    DECLARE @is_life BIT;
+   
+   
+    -- Declare a cursor to fetch data about new resources
+    DECLARE resource_cursor CURSOR FOR
+    SELECT planet_id, ecosystem_id, resource_id, resource_name, resource_quantity
+    FROM inserted;
+
+    -- Open the cursor
+    OPEN resource_cursor;
+
+    -- Fetch the first row of data from the cursor
+    FETCH NEXT FROM resource_cursor INTO @planet_id, @ecosystem_id, @resource_id, @resource_name, @resource_quantity;
+
+    -- While there is data available, generate a report about the new resource
+    WHILE @@FETCH_STATUS = 0
+    BEGIN
+        IF @resource_quantity > 0
+        BEGIN
+            DECLARE @report NVARCHAR(MAX);
+            SET @report = 'New resource found: ' + @resource_name + ', Ecosystem: ' + 
+                          (SELECT ecosystem_name FROM Ecosystems WHERE ecosystem_id = @ecosystem_id) +
+                          ', Planet: ' + (SELECT planet_name FROM Planets WHERE planet_id = @planet_id);
+            PRINT @report
+            -- INSERT INTO new_resource_report (report_text, create_date) VALUES (@report, GETDATE());
+        
+	        IF @resource_name = 'water' 
+	        BEGIN
+	            -- Declare a nested cursor to update the is_life status
+	            DECLARE planet_cursor CURSOR FOR
+	            SELECT planet_id, planet_name, is_life
+	            FROM Planets_x_Ecosystems_x_Resources
+	            WHERE resource_id = @resource_id;
+	           
+	            OPEN planet_cursor;
+                FETCH NEXT FROM planet_cursor INTO @planet_id, @planet_name, @is_life;
+
+                WHILE @@FETCH_STATUS = 0
+                BEGIN 
+               		IF @is_life = 1
+               	    BEGIN
+	               	    SET @report = 'Now there is life on a planet ' + @planet_name 
+	               	    UPDATE Planets
+	                    SET is_life = 1, lifeAppearance_date = CURRENT_TIMESTAMP 
+	                    WHERE planet_id = @planet_id;
+              	    END;
+              	    FETCH NEXT FROM planet_cursor INTO @planet_id, @planet_name, @is_life;
+                END;
+                CLOSE planet_cursor;
+	            DEALLOCATE planet_cursor;
+  	        END;
+       END;
+      
+       FETCH NEXT FROM resource_cursor INTO @planet_id, @ecosystem_id, @resource_id, @resource_name, @resource_quantity;
+    END;
+   
+    CLOSE resource_cursor;
+    DEALLOCATE resource_cursor;
+END;
 
 
 
@@ -466,15 +595,4 @@ END;
 
 
 
-
-
-
-
-
-							
-							
-							
-							
-							
-							
 							
